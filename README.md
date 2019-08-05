@@ -1001,3 +1001,180 @@ The cool thing about our HitCounter is that it’s quite useful. It basically al
 Since our hit counter is a simple JavaScript class, you could package it into an npm module and publish it to npmjs.org, which is the JavaScript package manager. Then, anyone could npm install it and add it to their CDK apps.
 
 In the next chapter we consume a construct library published to npm, which enables us to view the contents of our hit counter table from any browser.
+
+------------------------
+
+LEARNING ABOUT THE TABLE VIEWER CONSTRUCT
+Reading documentation
+Browse to the cdk-dynamo-table-viewer page on npmjs.org and read the module documentation.
+
+
+
+As mentioned in the README page of this library, it is not intended for production use. Namely because it will expose contents from your DynamoDB table to anyone without authentication.
+
+---------------------------
+
+INSTALLING THE LIBRARY
+npm install
+Before you can use the table viewer in your application, you’ll need to install the npm module:
+
+npm install cdk-dynamo-table-viewer@3.0.2
+Windows users: on Windows, you will have to stop the npm run watch command that is running in the background, then run npm install, then start npm run watch again. Otherwise you will get an error about files being in use.
+
+Output should look like this:
+
++ cdk-dynamo-table-viewer@3.0.2
+added 30 packages from 5 contributors and audited 3663 packages in 7.987s
+found 0 vulnerabilities
+Now we are ready to add a viewer to our app.
+
+-------------------------------
+
+ADD THE TABLE VIEWER TO YOUR APP
+Add a table viewer to your stack
+Add the following hightlighted lines to lib/cdk-workshop-stack.ts to add a TableViewer construct to your stack:
+
+import cdk = require('@aws-cdk/core');
+import lambda = require('@aws-cdk/aws-lambda');
+import apigw = require('@aws-cdk/aws-apigateway');
+import { HitCounter } from './hitcounter';
+import { TableViewer } from 'cdk-dynamo-table-viewer';
+
+export class CdkWorkshopStack extends cdk.Stack {
+  constructor(scope: cdk.App, id: string, props?: cdk.StackProps) {
+    super(scope, id, props);
+
+    const hello = new lambda.Function(this, 'HelloHandler', {
+      runtime: lambda.Runtime.NODEJS_8_10,
+      code: lambda.Code.asset('lambda'),
+      handler: 'hello.handler'
+    });
+
+    const helloWithCounter = new HitCounter(this, 'HelloHitCounter', {
+      downstream: hello
+    });
+
+    // defines an API Gateway REST API resource backed by our "hello" function.
+    new apigw.LambdaRestApi(this, 'Endpoint', {
+      handler: helloWithCounter.handler
+    });
+
+    new TableViewer(this, 'ViewHitCounter', {
+      title: 'Hello Hits',
+      table: //??????
+    });
+  }
+}
+What about the table?
+As you’ll notice, TableViewer requires that you specify a table property.
+
+
+
+What we want is to somehow access the DynamoDB table behind our hit counter. However, the current API of our hit counter doesn’t expose the table as a public member.
+
+In the next section, we’ll expose our table as a property of HitCounter so we can access it from our stack.
+
+---------------------
+
+DEPLOYING OUR APP
+cdk diff
+Before we deploy, let’s take a look at what will happen when we deploy our app (this is just the Resources section of the output):
+
+$ cdk diff
+Resources
+[+] AWS::IAM::Role ViewHitCounter/Rendered/ServiceRole ViewHitCounterRenderedServiceRole254DB4EA
+[+] AWS::IAM::Policy ViewHitCounter/Rendered/ServiceRole/DefaultPolicy ViewHitCounterRenderedServiceRoleDefaultPolicy9ADB8C83
+[+] AWS::Lambda::Function ViewHitCounter/Rendered ViewHitCounterRendered9C783E45
+[+] AWS::Lambda::Permission ViewHitCounter/Rendered/ApiPermission.ANY.. ViewHitCounterRenderedApiPermissionANY72263B1A
+[+] AWS::Lambda::Permission ViewHitCounter/Rendered/ApiPermission.Test.ANY.. ViewHitCounterRenderedApiPermissionTestANYA4794B81
+[+] AWS::Lambda::Permission ViewHitCounter/Rendered/ApiPermission.ANY..{proxy+} ViewHitCounterRenderedApiPermissionANYproxy42B9E676
+[+] AWS::Lambda::Permission ViewHitCounter/Rendered/ApiPermission.Test.ANY..{proxy+} ViewHitCounterRenderedApiPermissionTestANYproxy104CA88E
+[+] AWS::ApiGateway::RestApi ViewHitCounter/ViewerEndpoint ViewHitCounterViewerEndpoint5A0EF326
+[+] AWS::ApiGateway::Deployment ViewHitCounter/ViewerEndpoint/Deployment ViewHitCounterViewerEndpointDeployment1CE7C5768689ca8f54dfa4f161d3df0ebffcdcff
+[+] AWS::ApiGateway::Stage ViewHitCounter/ViewerEndpoint/DeploymentStage.prod ViewHitCounterViewerEndpointDeploymentStageprodF3901FC7
+[+] AWS::IAM::Role ViewHitCounter/ViewerEndpoint/CloudWatchRole ViewHitCounterViewerEndpointCloudWatchRole87B94D6A
+[+] AWS::ApiGateway::Account ViewHitCounter/ViewerEndpoint/Account ViewHitCounterViewerEndpointAccount0B75E76A
+[+] AWS::ApiGateway::Resource ViewHitCounter/ViewerEndpoint/{proxy+} ViewHitCounterViewerEndpointproxy2F4C239F
+[+] AWS::ApiGateway::Method ViewHitCounter/ViewerEndpoint/{proxy+}/ANY ViewHitCounterViewerEndpointproxyANYFF4B8F5B
+[+] AWS::ApiGateway::Method ViewHitCounter/ViewerEndpoint/ANY ViewHitCounterViewerEndpointANY66F2285B
+You’ll notice that the table viewer adds another API Gateway endpoint, a Lambda function, permissions, outputs, all sorts of goodies.
+
+Construct libraries are a very powerful concept. They allow you to add complex capabilities to your apps with minimum effort. However, you must understand that with great power comes great responsibility. Constructs can add IAM permissions, expose data to the public or cause your application not to function. We are working on providing you tools for protecting your app, and identifying potential security issues with your stacks, but it is your responsibility to understand how certain constructs that you use impact your application, and to make sure you only use construct libraries from vendors you trust
+
+cdk deploy
+$ cdk deploy
+...
+CdkWorkshopStack.ViewHitCounterViewerEndpointCA1B1E4B = https://mgmshrjxt1.execute-api.us-east-1.amazonaws.com/prod/
+You’ll see the viewer endpoint as an output.
+
+Viewing the hit counter table
+Open your browser and browse to the hit counter viewer endpoint URL. You should see something like this:
+
+
+
+Send a few requests
+Send a few more requests to your “hello” endpoint and monitor your hit counter viewer. You should see the values update in real-time.
+
+Use curl or your web browser to produce a few hits:
+
+$ curl https://xxxxxxxxxx.execute-api.us-east-1.amazonaws.com/prod/hit1
+$ curl https://xxxxxxxxxx.execute-api.us-east-1.amazonaws.com/prod/hit1
+$ curl https://xxxxxxxxxx.execute-api.us-east-1.amazonaws.com/prod/hit1
+$ curl https://xxxxxxxxxx.execute-api.us-east-1.amazonaws.com/prod/hit1
+$ curl https://xxxxxxxxxx.execute-api.us-east-1.amazonaws.com/prod/hoooot
+$ curl https://xxxxxxxxxx.execute-api.us-east-1.amazonaws.com/prod/hoooot
+$ curl https://xxxxxxxxxx.execute-api.us-east-1.amazonaws.com/prod/hit1
+$ curl https://xxxxxxxxxx.execute-api.us-east-1.amazonaws.com/prod/hit1
+$ curl https://xxxxxxxxxx.execute-api.us-east-1.amazonaws.com/prod/hit1
+$ curl https://xxxxxxxxxx.execute-api.us-east-1.amazonaws.com/prod/hit1
+$ curl https://xxxxxxxxxx.execute-api.us-east-1.amazonaws.com/prod/hoooot
+$ curl https://xxxxxxxxxx.execute-api.us-east-1.amazonaws.com/prod/hoooot
+$ curl https://xxxxxxxxxx.execute-api.us-east-1.amazonaws.com/prod/hit1
+Interested in how the Table Viewer works? It’s easy to find out! Hold Ctrl (or Command) and click on the TableViewer identifier to navigate to its source code.
+
+-------------------
+
+EXTRA CREDIT
+Sort hits by descending order
+You’ll notice that the hits in the table are not sorted. Figure out how to configure the table viewer to sort the table by “hits” in descending order (top path is first).
+
+Respuesta
+
+new TableViewer(this, 'ViewHitCounter', {
+      title: 'Hello Hits',
+      table: helloWithCounter.table,
+      sortBy: '-Hits'
+    });
+
+-----------------------
+
+CONGRATULATIONS!
+You’ve successfully finished our Introduction to the CDK workshop!
+
+In this workshop, you’ve learned how to:
+
+Create a new CDK project in TypeScript using cdk init
+Add resources to your CDK application stack
+Use cdk diff and cdk deploy to deploy your app to an AWS environment
+Author and use your own custom construct (HitCounter)
+Consume a construct from another npm module (cdk-dynamo-table-viewer)
+Use the AWS Lambda, API Gateway and DynamoDB AWS construct libraries
+What’s next?
+The AWS CDK is a work in progress. It is currently in Developer Preview. We’d love to hear what you think about every aspect of the framework.
+
+Here are a few things you can do from here:
+
+Build something: build something real with the CDK and let us know how it went. What worked? What was intuitive? What was completely misleading?
+Publish construct libraries: start thinking about infrastructure in terms of small reusable modules instead of monolithic templates. Pick up a useful thing you’ve built and try to design a beautiful API for it. Share it with the community and let us know about it. We’ll be curating a list of constructs, and would love to list yours.
+Create a simple app in the Hello World Tutorial with the CDK in one of the supported languages: Java, .NET, JavaScript and TypeScript
+Dive deeper into CDK Concepts: Constructs, Apps and Stacks, Logical IDs, Environments, Contexts, and Assets
+Explore the AWS Construct Library and the reference documentation which already contains constructs for many AWS resources such as EC2, AutoScaling, S3, SNS, SQS, CodePipeline, Step Functions and many more…
+Read guidelines on how to write your own constructs
+Learn about jsii, the technology behind the CDK’s multi-language support
+Browse some examples on our GitHub repository
+Join the conversation on our Gitter channel
+Ask questions on Stack Overflow
+Raise an issue on GitHub
+Learn how to submit contributions to the project.
+Thank you!
+The AWS CDK Team
